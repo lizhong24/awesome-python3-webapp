@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+__author__ = 'Michael Liao'
+
+' url handlers '
+
 import re, time, json, logging, hashlib, base64, asyncio
+
+import markdown2
 
 from aiohttp import web
 
@@ -14,11 +20,9 @@ from config import configs
 COOKIE_NAME = 'awesession'
 _COOKIE_KEY = configs.session.secret
 
-
 def check_admin(request):
     if request.__user__ is None or request.__user__.admin:
         raise APIPermissionError()
-
 
 def get_page_index(page_str):
     p = 1
@@ -30,7 +34,6 @@ def get_page_index(page_str):
         p = 1
     return p
 
-
 def user2cookie(user, max_age):
     '''
     Generate cookie str by user.
@@ -41,11 +44,9 @@ def user2cookie(user, max_age):
     L = [user.id, expires, hashlib.sha1(s.encode('utf-8')).hexdigest()]
     return '-'.join(L)
 
-
 def text2html(text):
     lines = map(lambda s: '<p>%s</p>' % s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;'), filter(lambda s: s.strip() != '', text.split('\n')))
     return ''.join(lines)
-
 
 @asyncio.coroutine
 def cookie2user(cookie_str):
@@ -74,7 +75,6 @@ def cookie2user(cookie_str):
         logging.exception(e)
         return None
 
-
 @get('/')
 def index(request):
     summary = 'Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.'
@@ -88,7 +88,6 @@ def index(request):
         'blogs': blogs
     }
 
-
 @get('/blog/{id}')
 def get_blog(id):
     blog = yield from Blog.find(id)
@@ -97,11 +96,10 @@ def get_blog(id):
         c.html_content = text2html(c.content)
     blog.html_content = markdown2.markdown(blog.content)
     return {
-        '__template__': 'blog.html',
+        '__template__': 'blogs.html',
         'blog': blog,
         'comments': comments
     }
-
 
 @get('/register')
 def register():
@@ -109,13 +107,11 @@ def register():
         '__template__': 'register.html'
     }
 
-
 @get('/signin')
 def signin():
     return {
         '__template__': 'signin.html'
     }
-
 
 @post('/api/authenticate')
 def authenticate(*, email, passwd):
@@ -142,7 +138,6 @@ def authenticate(*, email, passwd):
     r.body = json.dumps(user, ensure_ascii=False).encode('utf-8')
     return r
 
-
 @get('/signout')
 def signout(request):
     referer = request.headers.get('Referer')
@@ -151,6 +146,12 @@ def signout(request):
     logging.info('user signed out.')
     return r
 
+@get('/manage/blogs')
+def manage_blogs(*, page='1'):
+    return {
+        '__template__': 'manage_blogs.html',
+        'page_index': get_page_index(page)
+    }
 
 @get('/manage/blogs/create')
 def manage_create_blog():
@@ -160,10 +161,8 @@ def manage_create_blog():
         'action': '/api/blogs'
     }
 
-
 _RE_EMAIL = re.compile(r'^[a-z0-9\.\-\_]+\@[a-z0-9\-\_]+(\.[a-z0-9\-\_]+){1,4}$')
 _RE_SHA1 = re.compile(r'^[0-9a-f]{40}$')
-
 
 @post('/api/users')
 def api_register_user(*, email, name, passwd):
@@ -188,12 +187,20 @@ def api_register_user(*, email, name, passwd):
     r.body = json.dumps(user, ensure_ascii=False).encode('utf-8')
     return r
 
+@get('/api/blogs')
+def api_blogs(*, page='1'):
+    page_index = get_page_index(page)
+    num = yield from Blog.findNumber('count(id)')
+    p = Page(num, page_index)
+    if num == 0:
+        return dict(page=p, blogs=())
+    blogs = yield from Blog.findAll(orderBy='created_at desc', limit=(p.offset, p.limit))
+    return dict(page=p, blogs=blogs)
 
 @get('/api/blogs/{id}')
 def api_get_blog(*, id):
     blog = yield from Blog.find(id)
     return blog
-
 
 @post('/api/blogs')
 def api_create_blog(request, *, name, summary, content):
